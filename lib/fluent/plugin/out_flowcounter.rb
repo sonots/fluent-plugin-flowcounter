@@ -1,6 +1,6 @@
 require 'fluent/mixin/config_placeholders'
 
-class Fluent::FlowCounterOutput < Fluent::Output
+class Fluent::FlowCounterOutput < Fluent::BufferedOutput
   Fluent::Plugin.register_output('flowcounter', self)
 
   config_param :unit, :string, :default => 'minute'
@@ -149,26 +149,25 @@ class Fluent::FlowCounterOutput < Fluent::Output
     end
   end
 
-  def emit(tag, es, chain)
-    name = tag
-    if @input_tag_remove_prefix and
-        ( (tag.start_with?(@removed_prefix_string) and tag.length > @removed_length) or tag == @input_tag_remove_prefix)
-      name = tag[@removed_length..-1]
-    end
-    c,b = 0,0
-    if @count_all
-      es.each {|time,record|
-        c += 1
-        b += record.to_msgpack.bytesize
-      }
-    else
-      es.each {|time,record|
-        c += 1
-        b += @count_keys.inject(0){|s,k| s + record[k].bytesize}
-      }
-    end
-    countup(name, c, b)
+  def format(tag, time, record)
+    [tag, time, record].to_msgpack
+  end
 
-    chain.next
+  def write(chunk)
+    chunk.msgpack_each do |tag, time, record|
+      name = tag
+      if @input_tag_remove_prefix and
+        ( (tag.start_with?(@removed_prefix_string) and tag.length > @removed_length) or tag == @input_tag_remove_prefix)
+        name = tag[@removed_length..-1]
+      end
+      if @count_all
+        c = 1
+        b = record.to_msgpack.bytesize
+      else
+        c = 1
+        b = @count_keys.inject(0){|s,k| s + record[k].bytesize}
+      end
+      countup(name, c, b)
+    end
   end
 end
