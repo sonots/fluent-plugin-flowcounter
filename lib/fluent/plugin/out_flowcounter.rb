@@ -9,6 +9,8 @@ class Fluent::FlowCounterOutput < Fluent::BufferedOutput
   config_param :tag, :string, :default => 'flowcount'
   config_param :input_tag_remove_prefix, :string, :default => nil
   config_param :count_keys, :string
+  config_param :flush_interval, :time, :default => 0
+  config_param :try_flush_interval, :float, :default => 0.1
 
   include Fluent::Mixin::ConfigPlaceholders
 
