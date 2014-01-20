@@ -286,7 +286,7 @@ count_keys message
     assert_equal 15.0, r1[0]['bytes_rate']
   end
 
-  def test_enable_count_false
+  def test_disable_count
     d1 = create_driver(CONFIG + %[enable_count false], 'test.tag1')
     time = Time.parse("2012-01-02 13:14:15").to_i
     d1.run do
@@ -303,7 +303,7 @@ count_keys message
     assert_equal (30000/24.0).floor / 100.0, r1['tag1_bytes_rate'] # 300 * 3600 / (60 * 60 * 24) xx.xx
   end
 
-  def test_enable_bytes_false
+  def test_disable_bytes
     d1 = create_driver(CONFIG + %[enable_bytes false], 'test.tag1')
     time = Time.parse("2012-01-02 13:14:15").to_i
     d1.run do
@@ -320,7 +320,7 @@ count_keys message
     assert_equal nil, r1['tag1_bytes_rate']
   end
 
-  def test_enable_rate_false
+  def test_disable_rate
     d1 = create_driver(CONFIG + %[enable_rate false], 'test.tag1')
     time = Time.parse("2012-01-02 13:14:15").to_i
     d1.run do
@@ -335,5 +335,80 @@ count_keys message
     assert_equal 3600*3*100, r1['tag1_bytes']
     assert_equal nil, r1['tag1_count_rate']
     assert_equal nil, r1['tag1_bytes_rate']
+  end
+
+  def test_disable_count_tagged
+    d1 = create_driver( %[
+      unit minute
+      aggregate tag
+      output_style tagged
+      tag flow
+      input_tag_remove_prefix test
+      count_keys *
+      enable_count false
+    ], 'test.tag1')
+    time = Time.parse("2012-01-02 13:14:15").to_i
+    d1.run do
+      60.times do
+        d1.emit({'message'=> 'hello'})
+      end
+    end
+    r1 = d1.instance.tagged_flush(60)
+    assert_equal 1, r1.length
+    assert_equal 'tag1', r1[0]['tag']
+    assert_equal nil, r1[0]['count']
+    assert_equal 60*15, r1[0]['bytes']
+    assert_equal nil, r1[0]['count_rate']
+    assert_equal 15.0, r1[0]['bytes_rate']
+  end
+
+  def test_disable_bytes_tagged
+    d1 = create_driver( %[
+      unit minute
+      aggregate tag
+      output_style tagged
+      tag flow
+      input_tag_remove_prefix test
+      count_keys *
+      enable_bytes false
+    ], 'test.tag1')
+    time = Time.parse("2012-01-02 13:14:15").to_i
+    d1.run do
+      60.times do
+        d1.emit({'message'=> 'hello'})
+      end
+    end
+    r1 = d1.instance.tagged_flush(60)
+    assert_equal 1, r1.length
+    assert_equal 'tag1', r1[0]['tag']
+    assert_equal 60, r1[0]['count']
+    assert_equal nil, r1[0]['bytes']
+    assert_equal 1.0, r1[0]['count_rate']
+    assert_equal nil, r1[0]['bytes_rate']
+  end
+
+  def test_disable_rate_tagged
+    d1 = create_driver( %[
+      unit minute
+      aggregate tag
+      output_style tagged
+      tag flow
+      input_tag_remove_prefix test
+      count_keys *
+      enable_rate false
+    ], 'test.tag1')
+    time = Time.parse("2012-01-02 13:14:15").to_i
+    d1.run do
+      60.times do
+        d1.emit({'message'=> 'hello'})
+      end
+    end
+    r1 = d1.instance.tagged_flush(60)
+    assert_equal 1, r1.length
+    assert_equal 'tag1', r1[0]['tag']
+    assert_equal 60, r1[0]['count']
+    assert_equal 60*15, r1[0]['bytes']
+    assert_equal nil, r1[0]['count_rate']
+    assert_equal nil, r1[0]['bytes_rate']
   end
 end
