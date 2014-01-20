@@ -285,4 +285,55 @@ count_keys message
     assert_equal 1.0, r1[0]['count_rate']
     assert_equal 15.0, r1[0]['bytes_rate']
   end
+
+  def test_enable_count_false
+    d1 = create_driver(CONFIG + %[enable_count false], 'test.tag1')
+    time = Time.parse("2012-01-02 13:14:15").to_i
+    d1.run do
+      3600.times do
+        d1.emit({'message'=> 'a' * 100})
+        d1.emit({'message'=> 'b' * 100})
+        d1.emit({'message'=> 'c' * 100})
+      end
+    end
+    r1 = d1.instance.flush(3600 * 24)
+    assert_equal nil, r1['tag1_count']
+    assert_equal 3600*3*100, r1['tag1_bytes']
+    assert_equal nil, r1['tag1_count_rate'] # 3 * 3600 / (60 * 60 * 24) as xx.xx
+    assert_equal (30000/24.0).floor / 100.0, r1['tag1_bytes_rate'] # 300 * 3600 / (60 * 60 * 24) xx.xx
+  end
+
+  def test_enable_bytes_false
+    d1 = create_driver(CONFIG + %[enable_bytes false], 'test.tag1')
+    time = Time.parse("2012-01-02 13:14:15").to_i
+    d1.run do
+      3600.times do
+        d1.emit({'message'=> 'a' * 100})
+        d1.emit({'message'=> 'b' * 100})
+        d1.emit({'message'=> 'c' * 100})
+      end
+    end
+    r1 = d1.instance.flush(3600 * 24)
+    assert_equal 3600*3, r1['tag1_count']
+    assert_equal nil, r1['tag1_bytes']
+    assert_equal (300/24.0).floor / 100.0, r1['tag1_count_rate'] # 3 * 3600 / (60 * 60 * 24) as xx.xx
+    assert_equal nil, r1['tag1_bytes_rate']
+  end
+
+  def test_enable_rate_false
+    d1 = create_driver(CONFIG + %[enable_rate false], 'test.tag1')
+    time = Time.parse("2012-01-02 13:14:15").to_i
+    d1.run do
+      3600.times do
+        d1.emit({'message'=> 'a' * 100})
+        d1.emit({'message'=> 'b' * 100})
+        d1.emit({'message'=> 'c' * 100})
+      end
+    end
+    r1 = d1.instance.flush(3600 * 24)
+    assert_equal 3600*3, r1['tag1_count']
+    assert_equal 3600*3*100, r1['tag1_bytes']
+    assert_equal nil, r1['tag1_count_rate']
+    assert_equal nil, r1['tag1_bytes_rate']
+  end
 end

@@ -11,8 +11,7 @@ class Fluent::FlowCounterOutput < Fluent::Output
   config_param :count_keys, :string
   config_param :enable_count, :bool, :default => true
   config_param :enable_bytes, :bool, :default => true
-  config_param :enable_count_rate, :bool, :default => true
-  config_param :enable_bytes_rate, :bool, :default => true
+  config_param :enable_rate, :bool, :default => true
 
   include Fluent::Mixin::ConfigPlaceholders
 
@@ -87,8 +86,8 @@ class Fluent::FlowCounterOutput < Fluent::Output
       b = name + '_bytes'
     end
     @mutex.synchronize {
-      @counts[c] = (@counts[c] || 0) + counts
-      @counts[b] = (@counts[b] || 0) + bytes
+      @counts[c] = (@counts[c] || 0) + counts if @enable_count
+      @counts[b] = (@counts[b] || 0) + bytes  if @enable_bytes
     }
   end
 
@@ -96,7 +95,7 @@ class Fluent::FlowCounterOutput < Fluent::Output
     rates = {}
     counts.keys.each {|key|
       rates[key + '_rate'] = ((counts[key] * 100.0) / (1.00 * step)).floor / 100.0
-    }
+    } if @enable_rate
     counts.update(rates)
   end
 
@@ -107,12 +106,16 @@ class Fluent::FlowCounterOutput < Fluent::Output
 
   def tagged_flush(step)
     flushed,@counts = @counts,count_initialized(@counts.keys)
-    names = flushed.keys.select {|x| x.end_with?('_count')}.map {|x| x.chomp('_count')}
+    names =
+      if @enable_count
+        flushed.keys.select {|x| x.end_with?('_count')}.map {|x| x.chomp('_count')}
+      elsif @enable_bytes
+        flushed.keys.select {|x| x.end_with?('_bytes')}.map {|x| x.chomp('_bytes')}
+      end
     names.map {|name|
-      counts = {
-        'count' => flushed[name + '_count'],
-        'bytes' => flushed[name + '_bytes'],
-      }
+      counts = {}
+      counts['count'] = flushed[name + '_count'] if @enable_count
+      counts['bytes'] = flushed[name + '_bytes'] if @enable_bytes
       data = generate_output(counts, step)
       data['tag'] = name
       data
