@@ -9,6 +9,9 @@ class Fluent::FlowCounterOutput < Fluent::Output
   config_param :tag, :string, :default => 'flowcount'
   config_param :input_tag_remove_prefix, :string, :default => nil
   config_param :count_keys, :string
+  config_param :enable_count, :bool, :default => true
+  config_param :enable_bytes, :bool, :default => true
+  config_param :enable_rate, :bool, :default => true
 
   include Fluent::Mixin::ConfigPlaceholders
 
@@ -58,6 +61,7 @@ class Fluent::FlowCounterOutput < Fluent::Output
     @count_keys = @count_keys.split(',')
     @count_all = (@count_keys == ['*'])
 
+    @count_proc = count_proc_new
     @counts = count_initialized
     @mutex = Mutex.new
   end
@@ -92,8 +96,8 @@ class Fluent::FlowCounterOutput < Fluent::Output
       b = name + '_bytes'
     end
     @mutex.synchronize {
-      @counts[c] = (@counts[c] || 0) + counts
-      @counts[b] = (@counts[b] || 0) + bytes
+      @counts[c] = (@counts[c] || 0) + counts if @enable_count
+      @counts[b] = (@counts[b] || 0) + bytes  if @enable_bytes
     }
   end
 
@@ -101,7 +105,7 @@ class Fluent::FlowCounterOutput < Fluent::Output
     rates = {}
     counts.keys.each {|key|
       rates[key + '_rate'] = ((counts[key] * 100.0) / (1.00 * step)).floor / 100.0
-    }
+    } if @enable_rate
     counts.update(rates)
   end
 
@@ -112,12 +116,16 @@ class Fluent::FlowCounterOutput < Fluent::Output
 
   def tagged_flush(step)
     flushed,@counts = @counts,count_initialized(@counts.keys)
-    names = flushed.keys.select {|x| x.end_with?('_count')}.map {|x| x.chomp('_count')}
+    names =
+      if @enable_count
+        flushed.keys.select {|x| x.end_with?('_count')}.map {|x| x.chomp('_count')}
+      elsif @enable_bytes
+        flushed.keys.select {|x| x.end_with?('_bytes')}.map {|x| x.chomp('_bytes')}
+      end
     names.map {|name|
-      counts = {
-        'count' => flushed[name + '_count'],
-        'bytes' => flushed[name + '_bytes'],
-      }
+      counts = {}
+      counts['count'] = flushed[name + '_count'] if @enable_count
+      counts['bytes'] = flushed[name + '_bytes'] if @enable_bytes
       data = generate_output(counts, step)
       data['tag'] = name
       data
@@ -152,25 +160,76 @@ class Fluent::FlowCounterOutput < Fluent::Output
     end
   end
 
+  def count_proc_new
+    if @count_all
+      if @enable_count and @enable_bytes
+        Proc.new {|es|
+          count, bytes = 0, 0
+          es.each {|time,record|
+            count += 1
+            bytes += record.to_msgpack.bytesize
+          }
+          [count, bytes]
+        }
+      elsif @enable_count
+        Proc.new {|es|
+          count, bytes = 0, 0
+          es.each {|time,record|
+            count += 1
+          }
+          [count, bytes]
+        }
+      elsif @enable_bytes
+        Proc.new {|es|
+          count, bytes = 0, 0
+          es.each {|time,record|
+            bytes += record.to_msgpack.bytesize
+          }
+          [count, bytes]
+        }
+      else
+        Proc.new {|es| [0, 0] }
+      end
+    elsif @count_keys
+      if @enable_count and @enable_bytes
+        Proc.new {|es|
+          count, bytes = 0, 0
+          es.each {|time,record|
+            count += 1
+            bytes += @count_keys.map {|k| record[k].bytesize }.inject(:+)
+          }
+          [count, bytes]
+        }
+      elsif @enable_count
+        Proc.new {|es|
+          count, bytes = 0, 0
+          es.each {|time,record|
+            count += 1
+          }
+          [count, bytes]
+        }
+      elsif @enable_bytes
+        Proc.new {|es|
+          count, bytes = 0, 0
+          es.each {|time,record|
+            bytes += @count_keys.map {|k| record[k].bytesize }.inject(:+)
+          }
+          [count, bytes]
+        }
+      else
+        Proc.new {|es| [0,0] }
+      end
+    end
+  end
+
   def emit(tag, es, chain)
     name = tag
     if @input_tag_remove_prefix and
         ( (tag.start_with?(@removed_prefix_string) and tag.length > @removed_length) or tag == @input_tag_remove_prefix)
       name = tag[@removed_length..-1]
     end
-    c,b = 0,0
-    if @count_all
-      es.each {|time,record|
-        c += 1
-        b += record.to_msgpack.bytesize
-      }
-    else
-      es.each {|time,record|
-        c += 1
-        b += @count_keys.inject(0){|s,k| s + record[k].bytesize}
-      }
-    end
-    countup(name, c, b)
+    count, bytes = @count_proc.call(es)
+    countup(name, count, bytes)
 
     chain.next
   end
